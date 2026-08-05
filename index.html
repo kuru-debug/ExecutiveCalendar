@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Travel Calendar Dashboard</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:rgba(15,23,42,.82); --panel2:rgba(30,41,59,.86);
+      --card:rgba(255,255,255,.06); --border:rgba(255,255,255,.1);
+      --text:#e5eefb; --muted:#8fa3bf; --accent:#7c8cff; --accent2:#4fd1c5;
+      --danger:#ff6b6b; --shadow:0 20px 60px rgba(0,0,0,.35); --radius:22px;
+      --cell:rgba(255,255,255,.04); --cellToday:rgba(124,140,255,.18);
+    }
+    [data-theme="light"]{
+      --bg:#eef3ff; --panel:rgba(255,255,255,.88); --panel2:rgba(248,250,255,.95);
+      --card:rgba(15,23,42,.04); --border:rgba(15,23,42,.1); --text:#0f172a;
+      --muted:#5a6b86; --shadow:0 20px 60px rgba(15,23,42,.12);
+      --cell:rgba(15,23,42,.03); --cellToday:rgba(124,140,255,.16);
+    }
+    *{box-sizing:border-box} html,body{height:100%} body{
+      margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text);
+      background:radial-gradient(circle at top left, rgba(124,140,255,.22), transparent 25%),
+                 radial-gradient(circle at top right, rgba(79,209,197,.15), transparent 25%),
+                 linear-gradient(180deg,var(--bg),var(--bg));
+    }
+    button,input,select,textarea{font:inherit} button{cursor:pointer;border:0;background:none;color:inherit}
+    input,select,textarea{
+      width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:14px;color:var(--text);
+      padding:12px 14px;outline:none;
+    }
+    [data-theme="light"] input,[data-theme="light"] select,[data-theme="light"] textarea{background:rgba(255,255,255,.95)}
+    textarea{min-height:92px;resize:vertical}
+    .app{display:grid;grid-template-columns:280px 1fr;min-height:100vh}
+    .sidebar{padding:24px;border-right:1px solid var(--border);position:sticky;top:0;height:100vh;overflow:auto;
+      backdrop-filter:blur(18px);background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.01))}
+    .brand{display:flex;gap:12px;align-items:center;margin-bottom:20px}
+    .logo{width:48px;height:48px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;box-shadow:var(--shadow)}
+    .brand h1{margin:0;font-size:18px;line-height:1.2}.brand p{margin:2px 0 0;color:var(--muted);font-size:12px}
+    .nav{display:grid;gap:10px;margin:18px 0 0}.nav button{padding:12px 14px;border-radius:16px;text-align:left;border:1px solid transparent}
+    .nav button.active,.nav button:hover{background:rgba(124,140,255,.12);border-color:rgba(124,140,255,.22)}
+    .card{margin-top:18px;padding:16px;border-radius:var(--radius);background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow)}
+    .card h3,.panel-header h3{margin:0 0 8px;font-size:16px}.card p,.small{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+    .main{padding:24px}
+    .topbar{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+    .topbar h2{margin:0;font-size:28px}.topbar .date{color:var(--muted);margin-top:4px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .btn{padding:12px 16px;border-radius:16px;background:rgba(124,140,255,.16);border:1px solid rgba(124,140,255,.22);box-shadow:var(--shadow)}
+    .btn.secondary{background:rgba(255,255,255,.05);border-color:var(--border);box-shadow:none}
+    .btn.danger{background:rgba(255,107,107,.14);border-color:rgba(255,107,107,.24)}
+    .stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:16px}
+    .stat{padding:18px;border-radius:var(--radius);background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow)}
+    .stat .label{font-size:12px;color:var(--muted)} .stat .value{margin-top:10px;font-size:28px;font-weight:800} .stat .hint{margin-top:6px;font-size:12px;color:var(--muted)}
+    .section{display:none}.section.active{display:block}
+    .grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(340px,.9fr);gap:18px;align-items:start}
+    .panel{padding:18px;border-radius:var(--radius);background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow);backdrop-filter:blur(18px)}
+    .panel-header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+    .panel-header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+    .chip{display:inline-flex;gap:8px;align-items:center;padding:10px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--border);font-size:13px}
+    .weekday,.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+    .weekday div{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding:2px 6px}
+    .day{min-height:132px;padding:10px;border-radius:18px;background:var(--cell);border:1px solid var(--border);cursor:pointer;transition:.18s;overflow:hidden}
+    .day:hover{transform:translateY(-2px)} .day.muted{opacity:.46} .day.today{background:var(--cellToday);border-color:rgba(124,140,255,.35)} .day.selected{outline:2px solid rgba(124,140,255,.6)}
+    .day .num{font-weight:700;font-size:14px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .badges{display:grid;gap:6px;margin-top:10px}
+    .badge{padding:6px 8px;border-radius:10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1px solid transparent}
+    .travel{background:rgba(77,151,255,.18);color:#9cc0ff;border-color:rgba(77,151,255,.25)}
+    .meeting{background:rgba(94,234,212,.14);color:#7ef0dd;border-color:rgba(94,234,212,.22)}
+    .concert{background:rgba(198,121,255,.16);color:#d4a9ff;border-color:rgba(198,121,255,.24)}
+    .appearance{background:rgba(246,193,119,.18);color:#ffdca6;border-color:rgba(246,193,119,.26)}
+    .personal{background:rgba(255,255,255,.09);color:var(--text);border-color:var(--border)}
+    .important{background:rgba(255,107,107,.16);color:#ffb0b0;border-color:rgba(255,107,107,.25)}
+    .list{display:grid;gap:10px;max-height:430px;overflow:auto;padding-right:4px}
+    .item,.compact{padding:14px;border-radius:18px;background:var(--card);border:1px solid var(--border);cursor:pointer}
+    .item.active{outline:2px solid rgba(124,140,255,.45)}
+    .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+    .item h4,.compact h4{margin:0 0 4px;font-size:15px}.meta{color:var(--muted);font-size:12px;line-height:1.5}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;border:1px solid var(--border)}
+    .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.9fr);gap:18px}
+    .form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .span2{grid-column:span 2}
+    .divider{height:1px;background:var(--border);margin:16px 0}
+    .empty{padding:20px;border-radius:18px;border:1px dashed var(--border);color:var(--muted);text-align:center}
+    .email{display:grid;gap:10px}.preview{min-height:340px;white-space:pre-wrap;line-height:1.65;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:18px;padding:16px}
+    .status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(94,234,212,.12);border:1px solid rgba(94,234,212,.2);color:#5eead4;font-size:12px}
+    .footer{margin-top:14px;color:var(--muted);font-size:12px}
+    .modal-bg{position:fixed;inset:0;background:rgba(2,6,23,.65);display:none;align-items:center;justify-content:center;padding:18px;z-index:1000;backdrop-filter:blur(8px)}
+    .modal-bg.open{display:flex}.modal{width:min(1100px,100%);max-height:92vh;overflow:auto;background:var(--panel2);border:1px solid var(--border);border-radius:28px;box-shadow:var(--shadow);padding:20px}
+    .modal-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap}.modal-head h3{margin:0;font-size:22px}.modal-head p{margin:6px 0 0;color:var(--muted)}
+    @media (max-width:1220px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid,.split{grid-template-columns:1fr}.app{grid-template-columns:1fr}.sidebar{position:relative;height:auto;border-right:0;border-bottom:1px solid var(--border)}}
+    @media (max-width:760px){.main{padding:14px}.stats{grid-template-columns:1fr}.form,.weekday,.days{grid-template-columns:1fr}.day{min-height:88px}.span2{grid-column:span 1}.modal{padding:14px}}
+  </style>
+</head>
+<body>
+<div id="app" class="app" data-theme="dark">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">TC</div><div><h1>Travel Calendar</h1><p>Clients, trips, meetings, notes</p></div></div>
+    <div class="nav">
+      <button class="active" data-section="dashboard">Dashboard</button>
+      <button data-section="calendar">Calendar</button>
+      <button data-section="clients">Clients</button>
+      <button data-section="trips">Trip Notes</button>
+      <button data-section="email">Email Generator</button>
+    </div>
+    <div class="card">
+      <h3>Quick Add</h3><p>Create a trip, meeting, concert, appearance, or important reminder.</p><div class="divider"></div>
+      <button class="btn" id="newEventBtn" style="width:100%">+ New Event</button>
+    </div>
+    <div class="card"><h3>Current Date</h3><p id="todayLabel"></p></div>
+    <div class="card"><h3>Storage</h3><p>Saved automatically in your browser.</p></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div><h2>Operations Dashboard</h2><div class="date">Manage travel plans, meetings, and critical trip details.</div></div>
+      <div class="actions">
+        <button class="btn secondary" id="themeBtn">Toggle Theme</button>
+        <button class="btn secondary" id="exportBtn">Export JSON</button>
+        <button class="btn secondary" id="importBtn">Import JSON</button>
+        <button class="btn" id="seedBtn">Load Sample Data</button>
+      </div>
+    </div>
+
+    <div class="stats" id="statsRow"></div>
+
+    <section class="section active" data-section-view="dashboard">
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-header"><div><h3>Today at a glance</h3><p>Upcoming items ordered by date and time.</p></div><button class="btn secondary" id="goCalendarBtn">Open Calendar</button></div>
+          <div class="list" id="dashboardList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div><h3>Critical information</h3><p>Passport numbers, confirmations, emergency contacts, and VIP instructions.</p></div></div>
+          <div id="criticalCards" class="list" style="max-height:430px"></div>
+          <div class="divider"></div>
+          <div class="panel-header" style="margin-bottom:10px"><div><h3>Fast search</h3><p>Search clients, cities, flights, notes.</p></div></div>
+          <input id="globalSearch" placeholder="Search anything..." />
+          <div class="footer">Click any item to open, edit, or generate a trip email.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" data-section-view="calendar">
+      <div class="panel">
+        <div class="panel-header">
+          <div><h3>Calendar</h3><p>Click a date to create a new event. Click an event to view details.</p></div>
+          <div class="actions"><button class="btn secondary" id="prevMonthBtn">◀</button><button class="btn secondary" id="todayBtn">Today</button><button class="btn secondary" id="nextMonthBtn">▶</button></div>
+        </div>
+        <div class="toolbar">
+          <div class="chip" id="monthLabel"></div>
+          <div class="chip">Selected Date: <span id="selectedDateLabel"></span></div>
+          <div class="chip">Filter:</div>
+          <select id="typeFilter" style="max-width:180px">
+            <option value="all">All Types</option><option value="travel">Travel</option><option value="meeting">Meeting</option><option value="concert">Concert</option><option value="appearance">Appearance</option><option value="personal">Personal</option><option value="important">Important</option>
+          </select>
+        </div>
+        <div class="weekday" id="weekdayRow"></div>
+        <div class="days" id="daysGrid"></div>
+      </div>
+    </section>
+
+    <section class="section" data-section-view="clients">
+      <div class="split">
+        <div class="panel">
+          <div class="panel-header"><div><h3>Clients</h3><p>Store preferences and contact details.</p></div><button class="btn" id="addClientBtn">+ Add Client</button></div>
+          <div id="clientList" class="list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div><h3>Client profile</h3><p>Edit selected client details.</p></div><span class="status" id="clientStatus">No client selected</span></div>
+          <div class="form">
+            <input id="clientName" class="span2" placeholder="Client name" />
+            <input id="clientCompany" placeholder="Company / Organization" />
+            <input id="clientEmail" placeholder="Email" />
+            <input id="clientPhone" placeholder="Phone" />
+            <input id="clientAssistant" placeholder="Assistant" />
+            <input id="clientBirthday" type="date" />
+            <input id="clientAirline" placeholder="Preferred airline" />
+            <input id="clientHotel" placeholder="Preferred hotel" />
+            <input id="clientSeat" placeholder="Seat preference" />
+            <input id="clientFrequentFlyer" placeholder="Frequent flyer number" />
+            <input id="clientEmergency" class="span2" placeholder="Emergency contact" />
+            <textarea id="clientNotes" class="span2" placeholder="Client notes, preferences, VIP details..."></textarea>
+          </div>
+          <div class="divider"></div>
+          <div class="actions"><button class="btn" id="saveClientBtn">Save Client</button><button class="btn danger" id="deleteClientBtn">Delete Client</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" data-section-view="trips">
+      <div class="panel">
+        <div class="panel-header"><div><h3>Trip notes</h3><p>Focus on travel, hotel, transportation, meetings, and critical instructions.</p></div><button class="btn secondary" id="focusSelectedBtn">Load selected event</button></div>
+        <div id="tripNotesList" class="list"></div>
+      </div>
+    </section>
+
+    <section class="section" data-section-view="email">
+      <div class="split">
+        <div class="panel">
+          <div class="panel-header"><div><h3>Email generator</h3><p>Create a clean trip summary you can copy and send.</p></div></div>
+          <div class="email">
+            <select id="emailEventSelect"></select>
+            <input id="emailSubject" placeholder="Subject" />
+            <textarea id="emailGreeting" placeholder="Greeting / intro"></textarea>
+            <textarea id="emailNotes" placeholder="Additional notes to include"></textarea>
+            <div class="actions"><button class="btn" id="generateEmailBtn">Generate Email</button><button class="btn secondary" id="copyEmailBtn">Copy Email</button><button class="btn secondary" id="downloadTxtBtn">Download TXT</button></div>
+            <div class="footer">The preview is built from the selected trip's summary, flights, hotel, transport, meetings, and critical notes.</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div><h3>Preview</h3><p>What will be copied to the email.</p></div></div>
+          <div id="emailPreview" class="preview">Select an event, generate the email, and copy it from here.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="eventModalBackdrop" class="modal-bg" aria-hidden="true">
+  <div class="modal">
+    <div class="modal-head">
+      <div><h3 id="modalTitle">New Event</h3><p>Store travel plans, meetings, personal appearances, concerts, and critical information.</p></div>
+      <button class="btn secondary" id="closeModalBtn">Close</button>
+    </div>
+
+    <div class="form">
+      <div><label class="small">Event Type</label><select id="eventType"><option value="travel">Travel</option><option value="meeting">Meeting</option><option value="concert">Concert</option><option value="appearance">Appearance</option><option value="personal">Personal</option><option value="important">Important</option></select></div>
+      <div><label class="small">Client</label><select id="eventClient"></select></div>
+      <div class="span2"><label class="small">Title</label><input id="eventTitle" placeholder="Trip to Los Angeles / Board Meeting / Concert" /></div>
+      <div><label class="small">Start Date</label><input id="eventStart" type="date" /></div>
+      <div><label class="small">End Date</label><input id="eventEnd" type="date" /></div>
+      <div><label class="small">Start Time</label><input id="eventStartTime" type="time" /></div>
+      <div><label class="small">End Time</label><input id="eventEndTime" type="time" /></div>
+      <div><label class="small">Location</label><input id="eventLocation" placeholder="City / Venue / Airport / Hotel" /></div>
+      <div><label class="small">Status</label><select id="eventStatus"><option>Planned</option><option>Confirmed</option><option>On Hold</option><option>Completed</option></select></div>
+      <div class="span2"><label class="small">Trip Summary</label><textarea id="eventSummary" placeholder="Short summary of the plan, agenda, or appearance details."></textarea></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="panel-header" style="margin-bottom:10px"><div><h3>Critical information</h3><p>Put the things that matter most at the top of every trip.</p></div></div>
+    <div class="form">
+      <textarea id="eventCritical" class="span2" placeholder="Passport numbers, confirmation numbers, special instructions, emergency contacts, dietary notes..."></textarea>
+      <textarea id="eventFlights" placeholder="Flights: airline, number, terminal, gate, boarding, departure, arrival"></textarea>
+      <textarea id="eventHotel" placeholder="Hotel: name, address, confirmation, check-in, check-out"></textarea>
+      <textarea id="eventTransport" placeholder="Transportation: pickup, driver, car service, timing"></textarea>
+      <textarea id="eventMeetings" placeholder="Meetings: time, place, attendees, agenda, notes"></textarea>
+    </div>
+
+    <div class="divider"></div>
+    <div class="form">
+      <div class="span2"><label class="small">Attachments / file names</label><input id="eventAttachments" placeholder="tickets.pdf, hotel-confirmation.png, passport-scan.jpg" /></div>
+      <div><label class="small">Recurrence</label><select id="eventRepeat"><option value="none">No repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+      <div><label class="small">Repeat Count</label><input id="eventRepeatCount" type="number" min="1" max="24" value="3" /></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="actions"><button class="btn" id="saveEventBtn">Save Event</button><button class="btn secondary" id="duplicateEventBtn">Duplicate</button><button class="btn danger" id="deleteEventBtn">Delete</button></div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY='travel_calendar_dashboard_v1';
+const TYPES={travel:'Travel',meeting:'Meeting',concert:'Concert',appearance:'Appearance',personal:'Personal',important:'Important'};
+const DEFAULT_STATE={theme:'dark',currentMonth:new Date().toISOString().slice(0,10),selectedDate:new Date().toISOString().slice(0,10),selectedEventId:null,activeSection:'dashboard',search:'',typeFilter:'all',clients:[],events:[]};
+let state=loadState(); let selectedClientId=null;
+
+function loadState(){try{return {...DEFAULT_STATE,...JSON.parse(localStorage.getItem(STORAGE_KEY))}}catch{return structuredClone(DEFAULT_STATE)}}
+function saveState(){localStorage.setItem(STORAGE_KEY,JSON.stringify({theme:state.theme,currentMonth:state.currentMonth,selectedDate:state.selectedDate,selectedEventId:state.selectedEventId,activeSection:state.activeSection,search:state.search,typeFilter:state.typeFilter,clients:state.clients,events:state.events}))}
+function todayStr(){return new Date().toISOString().slice(0,10)}
+function shiftDate(days){const d=new Date();d.setDate(d.getDate()+days);return d.toISOString().slice(0,10)}
+function fmtDate(ds){if(!ds)return'—';return new Date(ds+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'})}
+function fmtMonth(ds){return new Date(ds+'T00:00:00').toLocaleDateString(undefined,{month:'long',year:'numeric'})}
+function dayKey(d){return new Date(d).toISOString().slice(0,10)}
+function escapeHtml(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')}
+function shorten(t,m){t=String(t||'');return t.length>m?t.slice(0,m-1)+'…':t}
+function getClientById(id){return state.clients.find(c=>c.id===id)||null}
+function getEventById(id){return state.events.find(e=>e.id===id)||null}
+function eventRangeText(ev){const d=ev.endDate&&ev.endDate!==ev.startDate?`${fmtDate(ev.startDate)} – ${fmtDate(ev.endDate)}`:fmtDate(ev.startDate);const t=ev.startTime?`${ev.startTime}${ev.endTime?' - '+ev.endTime:''}`:'';return [d,t].filter(Boolean).join(' • ')}
+function normalize(v){return String(v||'').toLowerCase().trim()}
+function matchesSearch(ev,q){if(!q)return true;const c=getClientById(ev.clientId);return normalize([ev.title,ev.type,ev.location,ev.summary,ev.critical,ev.flights,ev.hotel,ev.transport,ev.meetings,ev.status,ev.startDate,ev.endDate,c?.name,c?.company,c?.email,c?.phone,c?.assistant,...(ev.attachments||[])].join(' ')).includes(normalize(q))}
+function filteredEvents(){return [...state.events].filter(ev=>state.typeFilter==='all'||ev.type===state.typeFilter).filter(ev=>matchesSearch(ev,state.search)).sort((a,b)=>new Date(`${a.startDate}T${a.startTime||'00:00'}:00`)-new Date(`${b.startDate}T${b.startTime||'00:00'}:00`))}
+function eventsForDate(ds){return filteredEvents().filter(ev=>ev.startDate<=ds&&ev.endDate>=ds)}
+function getMonthStart(ds){const d=new Date(ds+'T00:00:00');return new Date(d.getFullYear(),d.getMonth(),1)}
+function render(){document.getElementById('app').setAttribute('data-theme',state.theme);document.getElementById('todayLabel').textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});renderStats();renderSections();renderNav();renderCalendar();renderDashboard();renderClients();renderTripNotes();renderEmailControls();renderSelectedEvent();saveState()}
+function renderStats(){const f=filteredEvents();const cards=[['Upcoming Events',f.filter(ev=>ev.startDate>=todayStr()).length,'Trips, meetings, and reminders'],['Clients',state.clients.length,'Profiles with preferences'],['Travel Items',f.filter(ev=>ev.type==='travel').length,'Trips to coordinate'],['Meetings',f.filter(ev=>ev.type==='meeting').length,'Appointments and plans'],['Critical Items',f.filter(ev=>ev.type==='important'||(ev.critical||'').trim()).length,'High-priority notes']];document.getElementById('statsRow').innerHTML=cards.map(([l,v,h])=>`<div class="stat"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join('')}
+function renderSections(){document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.dataset.sectionView===state.activeSection))}
+function renderNav(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.section===state.activeSection))}
+function renderCalendar(){const current=new Date(state.currentMonth+'T00:00:00');const monthStart=getMonthStart(state.currentMonth);document.getElementById('monthLabel').textContent=fmtMonth(state.currentMonth);document.getElementById('selectedDateLabel').textContent=fmtDate(state.selectedDate);document.getElementById('weekdayRow').innerHTML=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div>${d}</div>`).join('');const first=monthStart.getDay();const start=new Date(monthStart);start.setDate(start.getDate()-first);const today=todayStr();let html='';for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const k=dayKey(d);const inMonth=d.getMonth()===current.getMonth();const ds=eventsForDate(k).slice(0,3);html+=`<div class="day ${inMonth?'':'muted'} ${k===today?'today':''} ${k===state.selectedDate?'selected':''}" data-date="${k}"><div class="num"><span>${d.getDate()}</span><span style="font-size:11px;color:var(--muted)">${k===today?'Today':''}</span></div><div class="badges">${ds.map(ev=>`<div class="badge ${ev.type}">${escapeHtml(ev.title)}</div>`).join('')}${eventsForDate(k).length>3?`<div class="badge">+${eventsForDate(k).length-3} more</div>`:''}</div></div>`}document.getElementById('daysGrid').innerHTML=html;document.querySelectorAll('.day').forEach(el=>el.addEventListener('click',()=>{state.selectedDate=el.dataset.date;state.currentMonth=el.dataset.date.slice(0,7)+'-01';openEventModal(null,el.dataset.date);render()}))}
+function renderDashboard(){const upcoming=filteredEvents().filter(ev=>new Date(`${ev.startDate}T${ev.startTime||'00:00'}:00`)>=new Date(todayStr()+'T00:00:00')).slice(0,8);document.getElementById('dashboardList').innerHTML=upcoming.length?upcoming.map(renderEventItem).join(''):`<div class="empty">No upcoming items. Add a new event to begin.</div>`;const important=filteredEvents().filter(ev=>ev.type==='important'||(ev.critical||'').trim()).slice(0,4);document.getElementById('criticalCards').innerHTML=important.length?important.map(ev=>`<div class="compact"><div class="top"><div><h4>${escapeHtml(ev.title)}</h4><div class="meta">${fmtDate(ev.startDate)} • ${TYPES[ev.type]}${ev.location?' • '+escapeHtml(ev.location):''}</div></div><span class="pill">${escapeHtml(ev.status||'Planned')}</span></div><div class="divider"></div><div class="meta">${escapeHtml(shorten(ev.critical||ev.summary||'No critical notes yet.',140))}</div></div>`).join(''):`<div class="empty">Add critical notes like passport numbers, confirmation numbers, and emergency contacts.</div>`}
+function renderEventItem(ev){const c=getClientById(ev.clientId);return `<div class="item ${state.selectedEventId===ev.id?'active':''}" data-event-id="${ev.id}"><div class="top"><div><h4>${escapeHtml(ev.title)}</h4><div class="meta">${eventRangeText(ev)}${c?.name?' • '+escapeHtml(c.name):''}</div><div class="meta">${escapeHtml(ev.location||'No location set')}</div></div><div style="display:grid;gap:8px;justify-items:end"><span class="pill ${ev.type}">${TYPES[ev.type]}</span><span class="pill">${escapeHtml(ev.status||'Planned')}</span></div></div></div>`}
+function renderClients(){const list=document.getElementById('clientList');list.innerHTML=!state.clients.length?`<div class="empty">No clients yet. Click “Add Client” to create a profile.</div>`:state.clients.map(c=>`<div class="item ${selectedClientId===c.id?'active':''}" data-client-id="${c.id}"><div class="top"><div><h4>${escapeHtml(c.name||'Unnamed Client')}</h4><div class="meta">${escapeHtml(c.company||'No company')}</div><div class="meta">${escapeHtml(c.email||'')}</div></div><span class="pill">${escapeHtml(c.airline||'Profile')}</span></div></div>`).join('');document.querySelectorAll('[data-client-id]').forEach(el=>el.addEventListener('click',()=>loadClient(el.dataset.clientId)))}
+function renderTripNotes(){const trips=filteredEvents();document.getElementById('tripNotesList').innerHTML=trips.length?trips.map(ev=>`<div class="compact" data-event-id="${ev.id}"><div class="top"><div><h4>${escapeHtml(ev.title)}</h4><div class="meta">${fmtDate(ev.startDate)} • ${TYPES[ev.type]} • ${escapeHtml(ev.location||'No location')}</div></div><button class="btn secondary" style="padding:8px 12px">Open</button></div><div class="divider"></div><div class="meta"><strong>Summary:</strong> ${escapeHtml(shorten(ev.summary||'No summary yet.',180))}</div><div class="meta"><strong>Critical:</strong> ${escapeHtml(shorten(ev.critical||'No critical notes yet.',180))}</div></div>`).join(''):`<div class="empty">Select a date or create a trip to populate this section.</div>`;document.querySelectorAll('#tripNotesList [data-event-id], #dashboardList [data-event-id]').forEach(el=>el.addEventListener('click',()=>openEventById(el.dataset.eventId)))}
+function renderEmailControls(){const opts=filteredEvents();document.getElementById('emailEventSelect').innerHTML=opts.length?opts.map(ev=>`<option value="${ev.id}">${escapeHtml(ev.title)} — ${fmtDate(ev.startDate)}</option>`).join(''):`<option value="">No events available</option>`;if(!document.getElementById('emailSubject').value)document.getElementById('emailSubject').value='Trip Summary';if(!document.getElementById('emailGreeting').value)document.getElementById('emailGreeting').value='Hello,';if(!document.getElementById('emailNotes').value)document.getElementById('emailNotes').value='Here is the summary for the trip.'}
+function renderSelectedEvent(){const ev=getEventById(state.selectedEventId);if(!ev)return;document.getElementById('emailEventSelect').value=ev.id;document.getElementById('emailSubject').value=`${ev.title} - Trip Summary`;document.getElementById('emailGreeting').value=`Hello${getClientById(ev.clientId)?.name?' '+getClientById(ev.clientId).name:''},`;generateEmail(false)}
+function loadClient(id){const c=getClientById(id);if(!c)return;selectedClientId=id;document.getElementById('clientStatus').textContent=`Editing ${c.name}`;['clientName','clientCompany','clientEmail','clientPhone','clientAssistant','clientBirthday','clientAirline','clientHotel','clientSeat','clientFrequentFlyer','clientEmergency','clientNotes'].forEach(k=>document.getElementById(k).value=c[{clientName:'name',clientCompany:'company',clientEmail:'email',clientPhone:'phone',clientAssistant:'assistant',clientBirthday:'birthday',clientAirline:'airline',clientHotel:'hotel',clientSeat:'seat',clientFrequentFlyer:'frequentFlyer',clientEmergency:'emergency',clientNotes:'notes'}[k]]||'');renderClients()}
+function clearClientForm(){selectedClientId=null;document.getElementById('clientStatus').textContent='New client';['clientName','clientCompany','clientEmail','clientPhone','clientAssistant','clientBirthday','clientAirline','clientHotel','clientSeat','clientFrequentFlyer','clientEmergency','clientNotes'].forEach(id=>document.getElementById(id).value='');renderClients()}
+function saveClient(){const client={id:selectedClientId||crypto.randomUUID(),name:document.getElementById('clientName').value.trim(),company:document.getElementById('clientCompany').value.trim(),email:document.getElementById('clientEmail').value.trim(),phone:document.getElementById('clientPhone').value.trim(),assistant:document.getElementById('clientAssistant').value.trim(),birthday:document.getElementById('clientBirthday').value,airline:document.getElementById('clientAirline').value.trim(),hotel:document.getElementById('clientHotel').value.trim(),seat:document.getElementById('clientSeat').value.trim(),frequentFlyer:document.getElementById('clientFrequentFlyer').value.trim(),emergency:document.getElementById('clientEmergency').value.trim(),notes:document.getElementById('clientNotes').value.trim()};if(!client.name)return alert('Please enter a client name.');const idx=state.clients.findIndex(c=>c.id===client.id);if(idx>=0)state.clients[idx]=client;else state.clients.unshift(client);selectedClientId=client.id;document.getElementById('clientStatus').textContent=`Saved ${client.name}`;render()}
+function deleteClient(){if(!selectedClientId)return;if(!confirm('Delete this client?'))return;state.clients=state.clients.filter(c=>c.id!==selectedClientId);state.events=state.events.map(ev=>ev.clientId===selectedClientId?{...ev,clientId:null}:ev);selectedClientId=null;clearClientForm();render()}
+function openEventById(id){state.selectedEventId=id;const ev=getEventById(id);if(ev){state.selectedDate=ev.startDate;state.currentMonth=ev.startDate.slice(0,7)+'-01';openEventModal(ev)}render()}
+function fillClientOptions(selected=''){document.getElementById('eventClient').innerHTML=`<option value="">No client</option>`+state.clients.map(c=>`<option value="${c.id}">${escapeHtml(c.name||'Unnamed Client')}</option>`).join('');document.getElementById('eventClient').value=selected||''}
+function openEventModal(ev=null,date=null){document.getElementById('eventModalBackdrop').classList.add('open');document.getElementById('eventModalBackdrop').setAttribute('aria-hidden','false');const d=date||ev?.startDate||state.selectedDate||todayStr();document.getElementById('modalTitle').textContent=ev?'Edit Event':'New Event';document.getElementById('eventType').value=ev?.type||'travel';fillClientOptions(ev?.clientId||'');document.getElementById('eventTitle').value=ev?.title||'';document.getElementById('eventStart').value=ev?.startDate||d;document.getElementById('eventEnd').value=ev?.endDate||d;document.getElementById('eventStartTime').value=ev?.startTime||'09:00';document.getElementById('eventEndTime').value=ev?.endTime||'17:00';document.getElementById('eventLocation').value=ev?.location||'';document.getElementById('eventStatus').value=ev?.status||'Planned';document.getElementById('eventSummary').value=ev?.summary||'';document.getElementById('eventCritical').value=ev?.critical||'';document.getElementById('eventFlights').value=ev?.flights||'';document.getElementById('eventHotel').value=ev?.hotel||'';document.getElementById('eventTransport').value=ev?.transport||'';document.getElementById('eventMeetings').value=ev?.meetings||'';document.getElementById('eventAttachments').value=(ev?.attachments||[]).join(', ');document.getElementById('eventRepeat').value=ev?.repeat||'none';document.getElementById('eventRepeatCount').value=ev?.repeatCount||3;state.selectedEventId=ev?.id||null}
+function closeModal(){document.getElementById('eventModalBackdrop').classList.remove('open');document.getElementById('eventModalBackdrop').setAttribute('aria-hidden','true')}
+function saveEvent(){const repeat=document.getElementById('eventRepeat').value;const count=Math.max(1,Math.min(24,Number(document.getElementById('eventRepeatCount').value||1)));const ev={id:state.selectedEventId||crypto.randomUUID(),type:document.getElementById('eventType').value,clientId:document.getElementById('eventClient').value||null,title:document.getElementById('eventTitle').value.trim(),startDate:document.getElementById('eventStart').value,endDate:document.getElementById('eventEnd').value||document.getElementById('eventStart').value,startTime:document.getElementById('eventStartTime').value,endTime:document.getElementById('eventEndTime').value,location:document.getElementById('eventLocation').value.trim(),status:document.getElementById('eventStatus').value,summary:document.getElementById('eventSummary').value.trim(),critical:document.getElementById('eventCritical').value.trim(),flights:document.getElementById('eventFlights').value.trim(),hotel:document.getElementById('eventHotel').value.trim(),transport:document.getElementById('eventTransport').value.trim(),meetings:document.getElementById('eventMeetings').value.trim(),attachments:document.getElementById('eventAttachments').value.split(',').map(s=>s.trim()).filter(Boolean),repeat,repeatCount:count};if(!ev.title)return alert('Please enter a title.');if(!ev.startDate)return alert('Please choose a start date.');if(state.selectedEventId){const idx=state.events.findIndex(e=>e.id===state.selectedEventId);if(idx>=0)state.events[idx]=ev;else state.events.unshift(ev)}else state.events.unshift(ev);if(repeat!=='none'){const extras=[];for(let i=1;i<count;i++){const c={...ev,id:crypto.randomUUID()};const d=new Date(ev.startDate+'T00:00:00');if(repeat==='daily')d.setDate(d.getDate()+i);if(repeat==='weekly')d.setDate(d.getDate()+(7*i));if(repeat==='monthly')d.setMonth(d.getMonth()+i);c.startDate=d.toISOString().slice(0,10);c.endDate=c.startDate;extras.unshift(c)}state.events.unshift(...extras)}state.selectedEventId=ev.id;state.selectedDate=ev.startDate;state.currentMonth=ev.startDate.slice(0,7)+'-01';closeModal();render()}
+function deleteEvent(){if(!state.selectedEventId)return;if(!confirm('Delete this event?'))return;state.events=state.events.filter(e=>e.id!==state.selectedEventId);state.selectedEventId=null;closeModal();render()}
+function duplicateEvent(){const ev=getEventById(state.selectedEventId);if(!ev)return;const copy={...ev,id:crypto.randomUUID(),title:`${ev.title} (Copy)`,startDate:state.selectedDate||ev.startDate,endDate:state.selectedDate||ev.startDate};state.events.unshift(copy);state.selectedEventId=copy.id;render()}
+function generateEmail(write=true){const ev=getEventById(document.getElementById('emailEventSelect').value||state.selectedEventId);if(!ev){document.getElementById('emailPreview').textContent='No event selected.';return''}const c=getClientById(ev.clientId);const subject=document.getElementById('emailSubject').value.trim()||`${ev.title} - Trip Summary`;const greeting=document.getElementById('emailGreeting').value.trim()||`Hello${c?.name?' '+c.name:''},`;const notes=document.getElementById('emailNotes').value.trim();const body=[greeting,'',notes||'Here is the summary for the upcoming plan.','',`Title: ${ev.title}`,`Type: ${TYPES[ev.type]}`,`Date: ${eventRangeText(ev)}`,`Location: ${ev.location||'—'}`,`Status: ${ev.status||'Planned'}`,'','Summary',ev.summary||'—','','Flights',ev.flights||'—','','Hotel',ev.hotel||'—','','Transportation',ev.transport||'—','','Meetings',ev.meetings||'—','','Critical Information',ev.critical||'—','',`Attachments: ${(ev.attachments||[]).join(', ')||'None'}`,'','Best regards,'].join('\n');const email=`Subject: ${subject}\n\n${body}`;if(write)document.getElementById('emailPreview').textContent=email;return email}
+function copyEmail(){const text=generateEmail(true);if(!text)return;navigator.clipboard.writeText(text).then(()=>alert('Email copied to clipboard.'))}
+function downloadTxt(){const text=generateEmail(true);if(!text)return;const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='trip-summary.txt';a.click();URL.revokeObjectURL(url)}
+function exportJSON(){const blob=new Blob([JSON.stringify({clients:state.clients,events:state.events},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='travel-dashboard-data.json';a.click();URL.revokeObjectURL(url)}
+function importJSON(){const input=document.createElement('input');input.type='file';input.accept='application/json';input.onchange=async()=>{const file=input.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());state.clients=Array.isArray(data.clients)?data.clients:[];state.events=Array.isArray(data.events)?data.events:[];render();alert('Data imported.')}catch{alert('Invalid JSON file.')}};input.click()}
+function loadSampleData(){if(!confirm('Load sample clients and events?'))return;state.clients=[{id:crypto.randomUUID(),name:'John Carter',company:'Carter Media',email:'john@example.com',phone:'+1 212-555-0188',assistant:'Mia Lane',birthday:'1988-08-19',airline:'Delta',hotel:'The Peninsula',seat:'Aisle',frequentFlyer:'DL-4812-8833',emergency:'Mia Lane - +1 917-555-1099',notes:'Prefers morning flights, black car service, and quiet hotel rooms.'},{id:crypto.randomUUID(),name:'Ava Brooks',company:'Brooks Events',email:'ava@brooksevents.com',phone:'+1 310-555-0144',assistant:'Nina Park',birthday:'1991-02-02',airline:'United',hotel:'Four Seasons',seat:'Window',frequentFlyer:'UA-7741-2210',emergency:'Nina Park - +1 310-555-9191',notes:'Often requires venue map, backstage contact, and meet-and-greet list.'}];state.events=[{id:crypto.randomUUID(),type:'travel',title:'Los Angeles Trip',clientId:null,startDate:shiftDate(0),endDate:shiftDate(2),startTime:'08:30',endTime:'20:00',location:'Los Angeles, CA',status:'Confirmed',summary:'Client travel to LA with meetings and hotel check-in.',critical:'Passport packed. Confirmed black car pickup at terminal.',flights:'AA 101 | Depart 8:30 AM | Terminal 4 | Gate B12 | Arrive 11:15 AM',hotel:'The Westin Bonaventure | Conf #WB-22019 | Check-in 3:00 PM | Check-out 11:00 AM',transport:'Driver: Luis | Pickup: 6:30 AM | Car service confirmed',meetings:'2:00 PM - Studio meeting with production team',attachments:['itinerary.pdf','hotel-confirmation.pdf'],repeat:'none',repeatCount:1},{id:crypto.randomUUID(),type:'meeting',title:'Brand Strategy Meeting',clientId:null,startDate:shiftDate(1),endDate:shiftDate(1),startTime:'10:00',endTime:'11:00',location:'Downtown Office',status:'Planned',summary:'Discuss launch timeline, deliverables, and next steps.',critical:'Bring presentation deck and budget notes.',flights:'',hotel:'',transport:'',meetings:'10:00 AM - Strategy deck review | 11:00 AM - follow-up with assistant',attachments:[],repeat:'weekly',repeatCount:4},{id:crypto.randomUUID(),type:'concert',title:'Concert Night',clientId:null,startDate:shiftDate(4),endDate:shiftDate(4),startTime:'19:00',endTime:'23:00',location:'Arena Center',status:'Confirmed',summary:'Attend concert and guest lounge arrival.',critical:'VIP entry, backstage badge, and parking pass in wallet.',flights:'',hotel:'',transport:'Rideshare arranged at 6:15 PM',meetings:'7:00 PM doors open | 8:00 PM show',attachments:['vip-pass.jpg'],repeat:'none',repeatCount:1}];selectedClientId=null;state.selectedEventId=state.events[0]?.id||null;state.selectedDate=state.events[0]?.startDate||todayStr();state.currentMonth=state.selectedDate.slice(0,7)+'-01';render()}
+function openNew(){openEventModal(null,state.selectedDate)}
+function attachClickHandlers(){document.addEventListener('click',e=>{const nav=e.target.closest('.nav button');if(nav){state.activeSection=nav.dataset.section;render()}const eventItem=e.target.closest('[data-event-id]');if(eventItem&& !e.target.closest('#eventModalBackdrop'))openEventById(eventItem.dataset.eventId);const clientItem=e.target.closest('[data-client-id]');if(clientItem)loadClient(clientItem.dataset.clientId)})}
+document.getElementById('themeBtn').addEventListener('click',()=>{state.theme=state.theme==='dark'?'light':'dark';render()});
+document.getElementById('newEventBtn').addEventListener('click',openNew);document.getElementById('goCalendarBtn').addEventListener('click',()=>{state.activeSection='calendar';render()});
+document.getElementById('prevMonthBtn').addEventListener('click',()=>{const d=new Date(state.currentMonth+'T00:00:00');d.setMonth(d.getMonth()-1);state.currentMonth=d.toISOString().slice(0,10).slice(0,7)+'-01';state.selectedDate=state.currentMonth;render()});
+document.getElementById('nextMonthBtn').addEventListener('click',()=>{const d=new Date(state.currentMonth+'T00:00:00');d.setMonth(d.getMonth()+1);state.currentMonth=d.toISOString().slice(0,10).slice(0,7)+'-01';state.selectedDate=state.currentMonth;render()});
+document.getElementById('todayBtn').addEventListener('click',()=>{state.currentMonth=todayStr().slice(0,7)+'-01';state.selectedDate=todayStr();render()});
+document.getElementById('typeFilter').addEventListener('change',e=>{state.typeFilter=e.target.value;render()});document.getElementById('globalSearch').addEventListener('input',e=>{state.search=e.target.value;render()});
+document.getElementById('addClientBtn').addEventListener('click',clearClientForm);document.getElementById('saveClientBtn').addEventListener('click',saveClient);document.getElementById('deleteClientBtn').addEventListener('click',deleteClient);
+document.getElementById('closeModalBtn').addEventListener('click',closeModal);document.getElementById('eventModalBackdrop').addEventListener('click',e=>{if(e.target.id==='eventModalBackdrop')closeModal()});
+document.getElementById('saveEventBtn').addEventListener('click',saveEvent);document.getElementById('deleteEventBtn').addEventListener('click',deleteEvent);document.getElementById('duplicateEventBtn').addEventListener('click',duplicateEvent);document.getElementById('focusSelectedBtn').addEventListener('click',()=>state.selectedEventId?openEventById(state.selectedEventId):alert('Select an event first.'));
+document.getElementById('emailEventSelect').addEventListener('change',()=>generateEmail(true));document.getElementById('generateEmailBtn').addEventListener('click',()=>generateEmail(true));document.getElementById('copyEmailBtn').addEventListener('click',copyEmail);document.getElementById('downloadTxtBtn').addEventListener('click',downloadTxt);
+document.getElementById('exportBtn').addEventListener('click',exportJSON);document.getElementById('importBtn').addEventListener('click',importJSON);document.getElementById('seedBtn').addEventListener('click',loadSampleData);document.getElementById('emailSubject').addEventListener('input',()=>generateEmail(true));document.getElementById('emailGreeting').addEventListener('input',()=>generateEmail(true));document.getElementById('emailNotes').addEventListener('input',()=>generateEmail(true));
+document.getElementById('todayLabel').textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+if(!state.clients.length&&!state.events.length){state.currentMonth=todayStr().slice(0,7)+'-01';state.selectedDate=todayStr()}
+attachClickHandlers();render();
+</script>
+</body>
+</html>
