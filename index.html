@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Staging build: shared data requires SUPABASE_URL and SUPABASE_ANON_KEY configuration below. -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Travel Calendar Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
       --bg:#0b1020; --panel:rgba(15,23,42,.82); --panel2:rgba(30,41,59,.86);
@@ -85,6 +87,8 @@
     .email{display:grid;gap:10px}.preview{min-height:340px;white-space:pre-wrap;line-height:1.65;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:18px;padding:16px}
     .status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(94,234,212,.12);border:1px solid rgba(94,234,212,.2);color:#5eead4;font-size:12px}
     .footer{margin-top:14px;color:var(--muted);font-size:12px}
+    .auth-shell{max-width:620px;margin:7vh auto;padding:24px;border-radius:24px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow)}
+    .auth-shell h2{margin-top:0}.auth-form{display:grid;gap:12px;margin-top:18px}.auth-note{padding:12px 14px;border:1px solid var(--border);border-radius:14px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-wrap}.auth-status{margin-top:12px;font-size:13px;line-height:1.5;color:var(--muted);white-space:pre-wrap}.auth-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
     .modal-bg{position:fixed;inset:0;background:rgba(2,6,23,.65);display:none;align-items:center;justify-content:center;padding:18px;z-index:1000;backdrop-filter:blur(8px)}
     .modal-bg.open{display:flex}.modal{width:min(1100px,100%);max-height:92vh;overflow:auto;background:var(--panel2);border:1px solid var(--border);border-radius:28px;box-shadow:var(--shadow);padding:20px}
     .modal-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap}.modal-head h3{margin:0;font-size:22px}.modal-head p{margin:6px 0 0;color:var(--muted)}
@@ -93,7 +97,22 @@
   </style>
 </head>
 <body>
-<div id="app" class="app" data-theme="dark">
+<div id="authGate" class="auth-shell">
+  <div class="brand"><div class="logo">TC</div><div><h1>Travel Calendar</h1><p>Secure team sign-in</p></div></div>
+  <h2>Sign in to your calendar</h2>
+  <p class="small">Only users added by the project administrator can access shared events and client profiles.</p>
+  <div id="configNotice" class="auth-note" style="margin-top:16px">Setup required: add your Supabase project URL and public publishable/anon key to the configuration at the top of the page script.</div>
+  <form id="authForm" class="auth-form">
+    <label class="small" for="authEmail">Work email</label>
+    <input id="authEmail" type="email" autocomplete="username" placeholder="you@company.com" required />
+    <label class="small" for="authPassword">Password (for password sign-in)</label>
+    <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" />
+    <div class="auth-actions"><button class="btn" id="signInBtn" type="submit">Sign in</button><button class="btn secondary" id="magicLinkBtn" type="button">Email me a sign-in link</button></div>
+  </form>
+  <div class="auth-actions"><button class="btn secondary" id="signOutBtn" type="button" style="display:none">Sign out</button></div>
+  <div id="authStatus" class="auth-status" role="status" aria-live="polite"></div>
+</div>
+<div id="app" class="app" data-theme="dark" style="display:none">
   <aside class="sidebar">
     <div class="brand"><div class="logo">TC</div><div><h1>Travel Calendar</h1><p>Clients, trips, meetings, notes</p></div></div>
     <div class="nav">
@@ -108,7 +127,7 @@
       <button class="btn" id="newEventBtn" style="width:100%">+ New Event</button>
     </div>
     <div class="card"><h3>Current Date</h3><p id="todayLabel"></p></div>
-    <div class="card"><h3>Storage</h3><p>Saved automatically in your browser.</p></div>
+    <div class="card"><h3>Storage</h3><p id="storageStatus">Connecting to shared cloud storage...</p><p id="signedInLabel" class="small" style="margin-top:8px"></p><button class="btn secondary" id="appSignOutBtn" style="width:100%;margin-top:10px">Sign out</button></div>
   </aside>
 
   <main class="main">
@@ -260,13 +279,77 @@
 </div>
 
 <script>
+// SETUP: Replace both placeholders with the project's URL and public publishable/anon key.
+// Supabase Dashboard -> Project Settings -> API. Never place a service-role/secret key here.
+const SUPABASE_URL = 'https://xxodocepmhgqbwittuoe.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_VIaB81FUmKw8QbulosvX7A_Pzhjp9EO';
+let supabaseClient = null;
+let currentSession = null;
+let memberRole = null;
+let realtimeChannel = null;
+let refreshTimer = null;
+const isSupabaseConfigured = () => /^https:\/\/.+\.supabase\.co$/.test(SUPABASE_URL) && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith('PASTE_');
+function setAuthStatus(message, isError=false){const el=document.getElementById('authStatus');if(el){el.textContent=message;el.style.color=isError?'#ff8d8d':'var(--muted)';}}
+function showAuthGate(message='', isError=false){document.getElementById('authGate').style.display='block';document.getElementById('app').style.display='none';if(message)setAuthStatus(message,isError);}
+function showApp(){document.getElementById('authGate').style.display='none';document.getElementById('app').style.display='grid';document.getElementById('storageStatus').textContent='Connected to shared cloud database';document.getElementById('signedInLabel').textContent=currentSession?.user?.email||'';}
+function clientFromDb(row){return {id:row.id,name:row.name||'',company:row.company||'',email:row.email||'',phone:row.phone||'',assistant:row.assistant||'',birthday:row.birthday||'',airline:row.airline||'',hotel:row.hotel||'',seat:row.seat||'',frequentFlyer:row.frequent_flyer||'',emergency:row.emergency||'',notes:row.notes||''};}
+function clientToDb(c){return {id:c.id,name:c.name,company:c.company||null,email:c.email||null,phone:c.phone||null,assistant:c.assistant||null,birthday:c.birthday||null,airline:c.airline||null,hotel:c.hotel||null,seat:c.seat||null,frequent_flyer:c.frequentFlyer||null,emergency:c.emergency||null,notes:c.notes||'',updated_at:new Date().toISOString()};}
+function eventFromDb(row){return {id:row.id,type:row.type,title:row.title,clientId:row.client_id||null,startDate:row.start_date,endDate:row.end_date,startTime:(row.start_time||'').slice(0,5),endTime:(row.end_time||'').slice(0,5),location:row.location||'',status:row.status||'Planned',summary:row.summary||'',critical:row.critical||'',flights:row.flights||'',hotel:row.hotel||'',transport:row.transport||'',meetings:row.meetings||'',attachments:Array.isArray(row.attachments)?row.attachments:[],repeat:row.repeat_rule||'none',repeatCount:row.repeat_count||3};}
+function eventToDb(e){return {id:e.id,type:e.type,title:e.title,client_id:e.clientId||null,start_date:e.startDate,end_date:e.endDate||e.startDate,start_time:e.startTime||null,end_time:e.endTime||null,location:e.location||null,status:e.status||'Planned',summary:e.summary||null,critical:e.critical||null,flights:e.flights||null,hotel:e.hotel||null,transport:e.transport||null,meetings:e.meetings||null,attachments:Array.isArray(e.attachments)?e.attachments:[],repeat_rule:e.repeat||'none',repeat_count:Number(e.repeatCount||3),updated_at:new Date().toISOString()};}
+async function loadSharedData(shouldRender=true){
+  if(!supabaseClient||!currentSession)return;
+  const [clientsResult,eventsResult]=await Promise.all([
+    supabaseClient.from('clients').select('*').order('name'),
+    supabaseClient.from('events').select('*').order('start_date')
+  ]);
+  if(clientsResult.error||eventsResult.error){const err=clientsResult.error||eventsResult.error;throw err;}
+  state.clients=(clientsResult.data||[]).map(clientFromDb);
+  state.events=(eventsResult.data||[]).map(eventFromDb);
+  if(state.selectedEventId&&!state.events.some(e=>e.id===state.selectedEventId))state.selectedEventId=null;
+  if(selectedClientId&&!state.clients.some(c=>c.id===selectedClientId))selectedClientId=null;
+  if(shouldRender)render();
+}
+async function verifyMemberAndStart(session){
+  currentSession=session;
+  if(!session){memberRole=null;state.clients=[];state.events=[];stopRealtime();showAuthGate('Please sign in with an authorized team account.');return;}
+  setAuthStatus('Checking your calendar access...');
+  const {data:member,error}=await supabaseClient.from('calendar_members').select('role,active').eq('user_id',session.user.id).maybeSingle();
+  if(error){showAuthGate('Could not verify calendar access: '+error.message,true);return;}
+  if(!member||!member.active){memberRole=null;showAuthGate('Your account is signed in but is not an approved calendar member. Ask the project administrator to add your user ID to calendar_members.',true);return;}
+  memberRole=member.role;document.getElementById('configNotice').style.display='none';
+  try{await loadSharedData(false);showApp();render();subscribeRealtime();setAuthStatus('');}
+  catch(err){showAuthGate('Signed in, but the database could not be loaded: '+err.message,true);}
+}
+function stopRealtime(){if(supabaseClient&&realtimeChannel){supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null;}}
+function subscribeRealtime(){
+  stopRealtime();if(!supabaseClient||!currentSession)return;
+  realtimeChannel=supabaseClient.channel('calendar-shared-changes')
+    .on('postgres_changes',{event:'*',schema:'public',table:'events'},()=>scheduleSharedRefresh())
+    .on('postgres_changes',{event:'*',schema:'public',table:'clients'},()=>scheduleSharedRefresh())
+    .subscribe(status=>{if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){document.getElementById('storageStatus').textContent='Database connected; live updates need Realtime enabled. Refresh to load changes.';}});
+}
+function scheduleSharedRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>loadSharedData(true).catch(err=>setAuthStatus('Could not refresh shared data: '+err.message,true)),250);}
+async function initializeCloudApp(){
+  document.getElementById('appSignOutBtn').addEventListener('click',signOutUser);
+  document.getElementById('signOutBtn').addEventListener('click',signOutUser);
+  document.getElementById('authForm').addEventListener('submit',async ev=>{ev.preventDefault();if(!supabaseClient)return;const email=document.getElementById('authEmail').value.trim();const password=document.getElementById('authPassword').value;setAuthStatus('Signing in...');const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});if(error){setAuthStatus(error.message,true);return;}await verifyMemberAndStart(data.session);});
+  document.getElementById('magicLinkBtn').addEventListener('click',async()=>{if(!supabaseClient)return;const email=document.getElementById('authEmail').value.trim();if(!email){setAuthStatus('Enter your email address first.',true);return;}setAuthStatus('Sending a sign-in link...');const {error}=await supabaseClient.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin+window.location.pathname}});setAuthStatus(error?error.message:'If this email is authorized, a sign-in link has been sent. Check your inbox.',!!error);});
+  if(!isSupabaseConfigured()||!window.supabase?.createClient){document.getElementById('configNotice').textContent="Setup required: in index.html, replace SUPABASE_URL and SUPABASE_ANON_KEY with the Supabase project URL and public publishable/anon key. Do not use a service-role or secret key.";showAuthGate('The website is deployed, but Supabase connection settings have not been added yet.');return;}
+  supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+  supabaseClient.auth.onAuthStateChange((event,session)=>{setTimeout(()=>{if(event==='SIGNED_OUT'||!session){verifyMemberAndStart(null);}else if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED'||event==='INITIAL_SESSION'){verifyMemberAndStart(session).catch(err=>showAuthGate(err.message,true));}},0);});
+  const {data,error}=await supabaseClient.auth.getSession();if(error){showAuthGate(error.message,true);return;}if(data.session)await verifyMemberAndStart(data.session);else showAuthGate('Sign in with your approved team account.');
+}
+async function signOutUser(){if(supabaseClient)await supabaseClient.auth.signOut();currentSession=null;memberRole=null;state.clients=[];state.events=[];stopRealtime();showAuthGate('You have signed out.');}
+async function dbUpsertClients(clients){if(!clients.length)return;const {error}=await supabaseClient.from('clients').upsert(clients.map(clientToDb));if(error)throw error;}
+async function dbUpsertEvents(events){if(!events.length)return;const {error}=await supabaseClient.from('events').upsert(events.map(eventToDb));if(error)throw error;}
+
 const STORAGE_KEY='travel_calendar_dashboard_v1';
 const TYPES={travel:'Travel',meeting:'Meeting',concert:'Concert',appearance:'Appearance',personal:'Personal',important:'Important'};
 const DEFAULT_STATE={theme:'dark',currentMonth:new Date().toISOString().slice(0,10),selectedDate:new Date().toISOString().slice(0,10),selectedEventId:null,activeSection:'dashboard',search:'',typeFilter:'all',clients:[],events:[]};
 let state=loadState(); let selectedClientId=null;
 
-function loadState(){try{return {...DEFAULT_STATE,...JSON.parse(localStorage.getItem(STORAGE_KEY))}}catch{return structuredClone(DEFAULT_STATE)}}
-function saveState(){localStorage.setItem(STORAGE_KEY,JSON.stringify({theme:state.theme,currentMonth:state.currentMonth,selectedDate:state.selectedDate,selectedEventId:state.selectedEventId,activeSection:state.activeSection,search:state.search,typeFilter:state.typeFilter,clients:state.clients,events:state.events}))}
+function loadState(){try{const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');return {...DEFAULT_STATE,...saved,clients:[],events:[]}}catch{return structuredClone(DEFAULT_STATE)}}
+function saveState(){localStorage.setItem(STORAGE_KEY,JSON.stringify({theme:state.theme,currentMonth:state.currentMonth,selectedDate:state.selectedDate,selectedEventId:state.selectedEventId,activeSection:state.activeSection,search:state.search,typeFilter:state.typeFilter}))}
 function todayStr(){return new Date().toISOString().slice(0,10)}
 function shiftDate(days){const d=new Date();d.setDate(d.getDate()+days);return d.toISOString().slice(0,10)}
 function fmtDate(ds){if(!ds)return'—';return new Date(ds+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'})}
@@ -295,21 +378,51 @@ function renderEmailControls(){const opts=filteredEvents();document.getElementBy
 function renderSelectedEvent(){const ev=getEventById(state.selectedEventId);if(!ev)return;document.getElementById('emailEventSelect').value=ev.id;document.getElementById('emailSubject').value=`${ev.title} - Trip Summary`;document.getElementById('emailGreeting').value=`Hello${getClientById(ev.clientId)?.name?' '+getClientById(ev.clientId).name:''},`;generateEmail(false)}
 function loadClient(id){const c=getClientById(id);if(!c)return;selectedClientId=id;document.getElementById('clientStatus').textContent=`Editing ${c.name}`;['clientName','clientCompany','clientEmail','clientPhone','clientAssistant','clientBirthday','clientAirline','clientHotel','clientSeat','clientFrequentFlyer','clientEmergency','clientNotes'].forEach(k=>document.getElementById(k).value=c[{clientName:'name',clientCompany:'company',clientEmail:'email',clientPhone:'phone',clientAssistant:'assistant',clientBirthday:'birthday',clientAirline:'airline',clientHotel:'hotel',clientSeat:'seat',clientFrequentFlyer:'frequentFlyer',clientEmergency:'emergency',clientNotes:'notes'}[k]]||'');renderClients()}
 function clearClientForm(){selectedClientId=null;document.getElementById('clientStatus').textContent='New client';['clientName','clientCompany','clientEmail','clientPhone','clientAssistant','clientBirthday','clientAirline','clientHotel','clientSeat','clientFrequentFlyer','clientEmergency','clientNotes'].forEach(id=>document.getElementById(id).value='');renderClients()}
-function saveClient(){const client={id:selectedClientId||crypto.randomUUID(),name:document.getElementById('clientName').value.trim(),company:document.getElementById('clientCompany').value.trim(),email:document.getElementById('clientEmail').value.trim(),phone:document.getElementById('clientPhone').value.trim(),assistant:document.getElementById('clientAssistant').value.trim(),birthday:document.getElementById('clientBirthday').value,airline:document.getElementById('clientAirline').value.trim(),hotel:document.getElementById('clientHotel').value.trim(),seat:document.getElementById('clientSeat').value.trim(),frequentFlyer:document.getElementById('clientFrequentFlyer').value.trim(),emergency:document.getElementById('clientEmergency').value.trim(),notes:document.getElementById('clientNotes').value.trim()};if(!client.name)return alert('Please enter a client name.');const idx=state.clients.findIndex(c=>c.id===client.id);if(idx>=0)state.clients[idx]=client;else state.clients.unshift(client);selectedClientId=client.id;document.getElementById('clientStatus').textContent=`Saved ${client.name}`;render()}
-function deleteClient(){if(!selectedClientId)return;if(!confirm('Delete this client?'))return;state.clients=state.clients.filter(c=>c.id!==selectedClientId);state.events=state.events.map(ev=>ev.clientId===selectedClientId?{...ev,clientId:null}:ev);selectedClientId=null;clearClientForm();render()}
+async function saveClient(){
+  if(!currentSession)return alert('Please sign in first.');
+  const client={id:selectedClientId||crypto.randomUUID(),name:document.getElementById('clientName').value.trim(),company:document.getElementById('clientCompany').value.trim(),email:document.getElementById('clientEmail').value.trim(),phone:document.getElementById('clientPhone').value.trim(),assistant:document.getElementById('clientAssistant').value.trim(),birthday:document.getElementById('clientBirthday').value,airline:document.getElementById('clientAirline').value.trim(),hotel:document.getElementById('clientHotel').value.trim(),seat:document.getElementById('clientSeat').value.trim(),frequentFlyer:document.getElementById('clientFrequentFlyer').value.trim(),emergency:document.getElementById('clientEmergency').value.trim(),notes:document.getElementById('clientNotes').value.trim()};
+  if(!client.name)return alert('Please enter a client name.');
+  try{const {error}=await supabaseClient.from('clients').upsert(clientToDb(client));if(error)throw error;selectedClientId=client.id;await loadSharedData(false);document.getElementById('clientStatus').textContent=`Saved ${client.name}`;render();}catch(err){alert('Could not save client: '+err.message);}
+}
+async function deleteClient(){
+  if(!selectedClientId)return;if(!confirm('Delete this client? Related events will remain but become unlinked.'))return;
+  try{const {error}=await supabaseClient.from('clients').delete().eq('id',selectedClientId);if(error)throw error;selectedClientId=null;clearClientForm();await loadSharedData(false);render();}catch(err){alert('Could not delete client: '+err.message);}
+}
 function openEventById(id){state.selectedEventId=id;const ev=getEventById(id);if(ev){state.selectedDate=ev.startDate;state.currentMonth=ev.startDate.slice(0,7)+'-01';openEventModal(ev)}render()}
 function fillClientOptions(selected=''){document.getElementById('eventClient').innerHTML=`<option value="">No client</option>`+state.clients.map(c=>`<option value="${c.id}">${escapeHtml(c.name||'Unnamed Client')}</option>`).join('');document.getElementById('eventClient').value=selected||''}
 function openEventModal(ev=null,date=null){document.getElementById('eventModalBackdrop').classList.add('open');document.getElementById('eventModalBackdrop').setAttribute('aria-hidden','false');const d=date||ev?.startDate||state.selectedDate||todayStr();document.getElementById('modalTitle').textContent=ev?'Edit Event':'New Event';document.getElementById('eventType').value=ev?.type||'travel';fillClientOptions(ev?.clientId||'');document.getElementById('eventTitle').value=ev?.title||'';document.getElementById('eventStart').value=ev?.startDate||d;document.getElementById('eventEnd').value=ev?.endDate||d;document.getElementById('eventStartTime').value=ev?.startTime||'09:00';document.getElementById('eventEndTime').value=ev?.endTime||'17:00';document.getElementById('eventLocation').value=ev?.location||'';document.getElementById('eventStatus').value=ev?.status||'Planned';document.getElementById('eventSummary').value=ev?.summary||'';document.getElementById('eventCritical').value=ev?.critical||'';document.getElementById('eventFlights').value=ev?.flights||'';document.getElementById('eventHotel').value=ev?.hotel||'';document.getElementById('eventTransport').value=ev?.transport||'';document.getElementById('eventMeetings').value=ev?.meetings||'';document.getElementById('eventAttachments').value=(ev?.attachments||[]).join(', ');document.getElementById('eventRepeat').value=ev?.repeat||'none';document.getElementById('eventRepeatCount').value=ev?.repeatCount||3;state.selectedEventId=ev?.id||null}
 function closeModal(){document.getElementById('eventModalBackdrop').classList.remove('open');document.getElementById('eventModalBackdrop').setAttribute('aria-hidden','true')}
-function saveEvent(){const repeat=document.getElementById('eventRepeat').value;const count=Math.max(1,Math.min(24,Number(document.getElementById('eventRepeatCount').value||1)));const ev={id:state.selectedEventId||crypto.randomUUID(),type:document.getElementById('eventType').value,clientId:document.getElementById('eventClient').value||null,title:document.getElementById('eventTitle').value.trim(),startDate:document.getElementById('eventStart').value,endDate:document.getElementById('eventEnd').value||document.getElementById('eventStart').value,startTime:document.getElementById('eventStartTime').value,endTime:document.getElementById('eventEndTime').value,location:document.getElementById('eventLocation').value.trim(),status:document.getElementById('eventStatus').value,summary:document.getElementById('eventSummary').value.trim(),critical:document.getElementById('eventCritical').value.trim(),flights:document.getElementById('eventFlights').value.trim(),hotel:document.getElementById('eventHotel').value.trim(),transport:document.getElementById('eventTransport').value.trim(),meetings:document.getElementById('eventMeetings').value.trim(),attachments:document.getElementById('eventAttachments').value.split(',').map(s=>s.trim()).filter(Boolean),repeat,repeatCount:count};if(!ev.title)return alert('Please enter a title.');if(!ev.startDate)return alert('Please choose a start date.');if(state.selectedEventId){const idx=state.events.findIndex(e=>e.id===state.selectedEventId);if(idx>=0)state.events[idx]=ev;else state.events.unshift(ev)}else state.events.unshift(ev);if(repeat!=='none'){const extras=[];for(let i=1;i<count;i++){const c={...ev,id:crypto.randomUUID()};const d=new Date(ev.startDate+'T00:00:00');if(repeat==='daily')d.setDate(d.getDate()+i);if(repeat==='weekly')d.setDate(d.getDate()+(7*i));if(repeat==='monthly')d.setMonth(d.getMonth()+i);c.startDate=d.toISOString().slice(0,10);c.endDate=c.startDate;extras.unshift(c)}state.events.unshift(...extras)}state.selectedEventId=ev.id;state.selectedDate=ev.startDate;state.currentMonth=ev.startDate.slice(0,7)+'-01';closeModal();render()}
-function deleteEvent(){if(!state.selectedEventId)return;if(!confirm('Delete this event?'))return;state.events=state.events.filter(e=>e.id!==state.selectedEventId);state.selectedEventId=null;closeModal();render()}
-function duplicateEvent(){const ev=getEventById(state.selectedEventId);if(!ev)return;const copy={...ev,id:crypto.randomUUID(),title:`${ev.title} (Copy)`,startDate:state.selectedDate||ev.startDate,endDate:state.selectedDate||ev.startDate};state.events.unshift(copy);state.selectedEventId=copy.id;render()}
+async function saveEvent(){
+  if(!currentSession)return alert('Please sign in first.');
+  const wasEditing=Boolean(state.selectedEventId);const repeat=document.getElementById('eventRepeat').value;const count=Math.max(1,Math.min(24,Number(document.getElementById('eventRepeatCount').value||1)));
+  const ev={id:state.selectedEventId||crypto.randomUUID(),type:document.getElementById('eventType').value,clientId:document.getElementById('eventClient').value||null,title:document.getElementById('eventTitle').value.trim(),startDate:document.getElementById('eventStart').value,endDate:document.getElementById('eventEnd').value||document.getElementById('eventStart').value,startTime:document.getElementById('eventStartTime').value,endTime:document.getElementById('eventEndTime').value,location:document.getElementById('eventLocation').value.trim(),status:document.getElementById('eventStatus').value,summary:document.getElementById('eventSummary').value.trim(),critical:document.getElementById('eventCritical').value.trim(),flights:document.getElementById('eventFlights').value.trim(),hotel:document.getElementById('eventHotel').value.trim(),transport:document.getElementById('eventTransport').value.trim(),meetings:document.getElementById('eventMeetings').value.trim(),attachments:document.getElementById('eventAttachments').value.split(',').map(x=>x.trim()).filter(Boolean),repeat,repeatCount:count};
+  if(!ev.title)return alert('Please enter a title.');if(!ev.startDate)return alert('Please choose a start date.');if(ev.endDate<ev.startDate)return alert('End date cannot be before start date.');
+  const toSave=[ev];
+  if(!wasEditing&&repeat!=='none'){for(let i=1;i<count;i++){const copy={...ev,id:crypto.randomUUID()};const d=new Date(ev.startDate+'T00:00:00');if(repeat==='daily')d.setDate(d.getDate()+i);if(repeat==='weekly')d.setDate(d.getDate()+7*i);if(repeat==='monthly')d.setMonth(d.getMonth()+i);copy.startDate=d.toISOString().slice(0,10);copy.endDate=copy.startDate;toSave.push(copy);}}
+  try{await dbUpsertEvents(toSave);state.selectedEventId=ev.id;state.selectedDate=ev.startDate;state.currentMonth=ev.startDate.slice(0,7)+'-01';closeModal();await loadSharedData(false);render();}catch(err){alert('Could not save event. Your changes were not confirmed by the database. '+err.message);}
+}
+async function deleteEvent(){
+  if(!state.selectedEventId)return;if(!confirm('Delete this event?'))return;
+  try{const {error}=await supabaseClient.from('events').delete().eq('id',state.selectedEventId);if(error)throw error;state.selectedEventId=null;closeModal();await loadSharedData(false);render();}catch(err){alert('Could not delete event: '+err.message);}
+}
+async function duplicateEvent(){
+  const ev=getEventById(state.selectedEventId);if(!ev)return;const copy={...ev,id:crypto.randomUUID(),title:`${ev.title} (Copy)`,startDate:state.selectedDate||ev.startDate,endDate:state.selectedDate||ev.startDate};
+  try{await dbUpsertEvents([copy]);state.selectedEventId=copy.id;await loadSharedData(false);render();}catch(err){alert('Could not duplicate event: '+err.message);}
+}
 function generateEmail(write=true){const ev=getEventById(document.getElementById('emailEventSelect').value||state.selectedEventId);if(!ev){document.getElementById('emailPreview').textContent='No event selected.';return''}const c=getClientById(ev.clientId);const subject=document.getElementById('emailSubject').value.trim()||`${ev.title} - Trip Summary`;const greeting=document.getElementById('emailGreeting').value.trim()||`Hello${c?.name?' '+c.name:''},`;const notes=document.getElementById('emailNotes').value.trim();const body=[greeting,'',notes||'Here is the summary for the upcoming plan.','',`Title: ${ev.title}`,`Type: ${TYPES[ev.type]}`,`Date: ${eventRangeText(ev)}`,`Location: ${ev.location||'—'}`,`Status: ${ev.status||'Planned'}`,'','Summary',ev.summary||'—','','Flights',ev.flights||'—','','Hotel',ev.hotel||'—','','Transportation',ev.transport||'—','','Meetings',ev.meetings||'—','','Critical Information',ev.critical||'—','',`Attachments: ${(ev.attachments||[]).join(', ')||'None'}`,'','Best regards,'].join('\n');const email=`Subject: ${subject}\n\n${body}`;if(write)document.getElementById('emailPreview').textContent=email;return email}
 function copyEmail(){const text=generateEmail(true);if(!text)return;navigator.clipboard.writeText(text).then(()=>alert('Email copied to clipboard.'))}
 function downloadTxt(){const text=generateEmail(true);if(!text)return;const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='trip-summary.txt';a.click();URL.revokeObjectURL(url)}
 function exportJSON(){const blob=new Blob([JSON.stringify({clients:state.clients,events:state.events},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='travel-dashboard-data.json';a.click();URL.revokeObjectURL(url)}
-function importJSON(){const input=document.createElement('input');input.type='file';input.accept='application/json';input.onchange=async()=>{const file=input.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());state.clients=Array.isArray(data.clients)?data.clients:[];state.events=Array.isArray(data.events)?data.events:[];render();alert('Data imported.')}catch{alert('Invalid JSON file.')}};input.click()}
-function loadSampleData(){if(!confirm('Load sample clients and events?'))return;state.clients=[{id:crypto.randomUUID(),name:'John Carter',company:'Carter Media',email:'john@example.com',phone:'+1 212-555-0188',assistant:'Mia Lane',birthday:'1988-08-19',airline:'Delta',hotel:'The Peninsula',seat:'Aisle',frequentFlyer:'DL-4812-8833',emergency:'Mia Lane - +1 917-555-1099',notes:'Prefers morning flights, black car service, and quiet hotel rooms.'},{id:crypto.randomUUID(),name:'Ava Brooks',company:'Brooks Events',email:'ava@brooksevents.com',phone:'+1 310-555-0144',assistant:'Nina Park',birthday:'1991-02-02',airline:'United',hotel:'Four Seasons',seat:'Window',frequentFlyer:'UA-7741-2210',emergency:'Nina Park - +1 310-555-9191',notes:'Often requires venue map, backstage contact, and meet-and-greet list.'}];state.events=[{id:crypto.randomUUID(),type:'travel',title:'Los Angeles Trip',clientId:null,startDate:shiftDate(0),endDate:shiftDate(2),startTime:'08:30',endTime:'20:00',location:'Los Angeles, CA',status:'Confirmed',summary:'Client travel to LA with meetings and hotel check-in.',critical:'Passport packed. Confirmed black car pickup at terminal.',flights:'AA 101 | Depart 8:30 AM | Terminal 4 | Gate B12 | Arrive 11:15 AM',hotel:'The Westin Bonaventure | Conf #WB-22019 | Check-in 3:00 PM | Check-out 11:00 AM',transport:'Driver: Luis | Pickup: 6:30 AM | Car service confirmed',meetings:'2:00 PM - Studio meeting with production team',attachments:['itinerary.pdf','hotel-confirmation.pdf'],repeat:'none',repeatCount:1},{id:crypto.randomUUID(),type:'meeting',title:'Brand Strategy Meeting',clientId:null,startDate:shiftDate(1),endDate:shiftDate(1),startTime:'10:00',endTime:'11:00',location:'Downtown Office',status:'Planned',summary:'Discuss launch timeline, deliverables, and next steps.',critical:'Bring presentation deck and budget notes.',flights:'',hotel:'',transport:'',meetings:'10:00 AM - Strategy deck review | 11:00 AM - follow-up with assistant',attachments:[],repeat:'weekly',repeatCount:4},{id:crypto.randomUUID(),type:'concert',title:'Concert Night',clientId:null,startDate:shiftDate(4),endDate:shiftDate(4),startTime:'19:00',endTime:'23:00',location:'Arena Center',status:'Confirmed',summary:'Attend concert and guest lounge arrival.',critical:'VIP entry, backstage badge, and parking pass in wallet.',flights:'',hotel:'',transport:'Rideshare arranged at 6:15 PM',meetings:'7:00 PM doors open | 8:00 PM show',attachments:['vip-pass.jpg'],repeat:'none',repeatCount:1}];selectedClientId=null;state.selectedEventId=state.events[0]?.id||null;state.selectedDate=state.events[0]?.startDate||todayStr();state.currentMonth=state.selectedDate.slice(0,7)+'-01';render()}
+function importJSON(){
+  if(!currentSession)return alert('Please sign in first.');
+  const input=document.createElement('input');input.type='file';input.accept='application/json';input.onchange=async()=>{const file=input.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());const rawClients=Array.isArray(data.clients)?data.clients:[];const rawEvents=Array.isArray(data.events)?data.events:[];const validUuid=id=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id||''));const clientMap=new Map();const clients=rawClients.map(c=>{const id=validUuid(c.id)?c.id:crypto.randomUUID();clientMap.set(c.id,id);return {...c,id};});const events=rawEvents.map(e=>({...e,id:validUuid(e.id)?e.id:crypto.randomUUID(),clientId:clientMap.get(e.clientId)||null}));if(!confirm(`Import ${clients.length} clients and ${events.length} events into the shared calendar? Matching IDs will update existing records.`))return;await dbUpsertClients(clients);await dbUpsertEvents(events);await loadSharedData(false);render();alert('Import completed successfully.');}catch(err){alert('Import failed. Check the JSON format and database permissions. '+err.message);}};input.click();
+}
+async function loadSampleData(){
+  if(!currentSession)return alert('Please sign in first.');if(!confirm('Add demonstration clients and events to the SHARED calendar? This will be visible to all authorized members.'))return;
+  const sampleClients=[{id:crypto.randomUUID(),name:'John Carter',company:'Example Media',email:'john@example.com',phone:'',assistant:'Mia Lane',birthday:'1988-08-19',airline:'Delta',hotel:'The Peninsula',seat:'Aisle',frequentFlyer:'',emergency:'',notes:'Demonstration record only. Remove after testing.'},{id:crypto.randomUUID(),name:'Ava Brooks',company:'Example Events',email:'ava@example.com',phone:'',assistant:'Nina Park',birthday:'1991-02-02',airline:'United',hotel:'Four Seasons',seat:'Window',frequentFlyer:'',emergency:'',notes:'Demonstration record only. Remove after testing.'}];
+  const sampleEvents=[{id:crypto.randomUUID(),type:'travel',title:'Demo: Los Angeles Trip',clientId:sampleClients[0].id,startDate:shiftDate(0),endDate:shiftDate(2),startTime:'08:30',endTime:'20:00',location:'Los Angeles, CA',status:'Confirmed',summary:'Demonstration event; replace or delete after testing.',critical:'Demo only; do not add sensitive details.',flights:'Sample flight details',hotel:'Sample hotel details',transport:'Sample transportation',meetings:'Sample meeting details',attachments:['sample-itinerary.pdf'],repeat:'none',repeatCount:1},{id:crypto.randomUUID(),type:'meeting',title:'Demo: Strategy Meeting',clientId:sampleClients[1].id,startDate:shiftDate(1),endDate:shiftDate(1),startTime:'10:00',endTime:'11:00',location:'Example Office',status:'Planned',summary:'Demonstration event; replace or delete after testing.',critical:'Demo only.',flights:'',hotel:'',transport:'',meetings:'Sample agenda',attachments:[],repeat:'none',repeatCount:1}];
+  try{await dbUpsertClients(sampleClients);await dbUpsertEvents(sampleEvents);await loadSharedData(false);state.selectedEventId=sampleEvents[0].id;state.selectedDate=sampleEvents[0].startDate;state.currentMonth=state.selectedDate.slice(0,7)+'-01';render();}catch(err){alert('Could not add sample data: '+err.message);}
+}
 function openNew(){openEventModal(null,state.selectedDate)}
 function attachClickHandlers(){document.addEventListener('click',e=>{const nav=e.target.closest('.nav button');if(nav){state.activeSection=nav.dataset.section;render()}const eventItem=e.target.closest('[data-event-id]');if(eventItem&& !e.target.closest('#eventModalBackdrop'))openEventById(eventItem.dataset.eventId);const clientItem=e.target.closest('[data-client-id]');if(clientItem)loadClient(clientItem.dataset.clientId)})}
 document.getElementById('themeBtn').addEventListener('click',()=>{state.theme=state.theme==='dark'?'light':'dark';render()});
@@ -325,7 +438,8 @@ document.getElementById('emailEventSelect').addEventListener('change',()=>genera
 document.getElementById('exportBtn').addEventListener('click',exportJSON);document.getElementById('importBtn').addEventListener('click',importJSON);document.getElementById('seedBtn').addEventListener('click',loadSampleData);document.getElementById('emailSubject').addEventListener('input',()=>generateEmail(true));document.getElementById('emailGreeting').addEventListener('input',()=>generateEmail(true));document.getElementById('emailNotes').addEventListener('input',()=>generateEmail(true));
 document.getElementById('todayLabel').textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 if(!state.clients.length&&!state.events.length){state.currentMonth=todayStr().slice(0,7)+'-01';state.selectedDate=todayStr()}
-attachClickHandlers();render();
+attachClickHandlers();
+initializeCloudApp().catch(err=>showAuthGate('App initialization failed: '+err.message,true));
 </script>
 </body>
 </html>
