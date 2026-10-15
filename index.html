@@ -97,22 +97,7 @@
   </style>
 </head>
 <body>
-<div id="authGate" class="auth-shell">
-  <div class="brand"><div class="logo">TC</div><div><h1>Travel Calendar</h1><p>Secure team sign-in</p></div></div>
-  <h2>Sign in to your calendar</h2>
-  <p class="small">Only users added by the project administrator can access shared events and client profiles.</p>
-  <div id="configNotice" class="auth-note" style="margin-top:16px">Setup required: add your Supabase project URL and public publishable/anon key to the configuration at the top of the page script.</div>
-  <form id="authForm" class="auth-form">
-    <label class="small" for="authEmail">Work email</label>
-    <input id="authEmail" type="email" autocomplete="username" placeholder="you@company.com" required />
-    <label class="small" for="authPassword">Password (for password sign-in)</label>
-    <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" />
-    <div class="auth-actions"><button class="btn" id="signInBtn" type="submit">Sign in</button><button class="btn secondary" id="magicLinkBtn" type="button">Email me a sign-in link</button></div>
-  </form>
-  <div class="auth-actions"><button class="btn secondary" id="signOutBtn" type="button" style="display:none">Sign out</button></div>
-  <div id="authStatus" class="auth-status" role="status" aria-live="polite"></div>
-</div>
-<div id="app" class="app" data-theme="dark" style="display:none">
+<div id="app" class="app" data-theme="dark">
   <aside class="sidebar">
     <div class="brand"><div class="logo">TC</div><div><h1>Travel Calendar</h1><p>Clients, trips, meetings, notes</p></div></div>
     <div class="nav">
@@ -127,7 +112,7 @@
       <button class="btn" id="newEventBtn" style="width:100%">+ New Event</button>
     </div>
     <div class="card"><h3>Current Date</h3><p id="todayLabel"></p></div>
-    <div class="card"><h3>Storage</h3><p id="storageStatus">Connecting to shared cloud storage...</p><p id="signedInLabel" class="small" style="margin-top:8px"></p><button class="btn secondary" id="appSignOutBtn" style="width:100%;margin-top:10px">Sign out</button></div>
+    <div class="card"><h3>Storage</h3><p id="storageStatus">Connecting to shared cloud storage...</p><p class="small" style="margin-top:8px">Link-only access: anyone with the link can view and change shared data.</p></div>
   </aside>
 
   <main class="main">
@@ -137,7 +122,6 @@
         <button class="btn secondary" id="themeBtn">Toggle Theme</button>
         <button class="btn secondary" id="exportBtn">Export JSON</button>
         <button class="btn secondary" id="importBtn">Import JSON</button>
-        <button class="btn" id="seedBtn">Load Sample Data</button>
       </div>
     </div>
 
@@ -284,20 +268,15 @@
 const SUPABASE_URL = 'https://xxodocepmhgqbwittuoe.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_VIaB81FUmKw8QbulosvX7A_Pzhjp9EO';
 let supabaseClient = null;
-let currentSession = null;
-let memberRole = null;
 let realtimeChannel = null;
 let refreshTimer = null;
 const isSupabaseConfigured = () => /^https:\/\/.+\.supabase\.co$/.test(SUPABASE_URL) && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith('PASTE_');
-function setAuthStatus(message, isError=false){const el=document.getElementById('authStatus');if(el){el.textContent=message;el.style.color=isError?'#ff8d8d':'var(--muted)';}}
-function showAuthGate(message='', isError=false){document.getElementById('authGate').style.display='block';document.getElementById('app').style.display='none';if(message)setAuthStatus(message,isError);}
-function showApp(){document.getElementById('authGate').style.display='none';document.getElementById('app').style.display='grid';document.getElementById('storageStatus').textContent='Connected to shared cloud database';document.getElementById('signedInLabel').textContent=currentSession?.user?.email||'';}
 function clientFromDb(row){return {id:row.id,name:row.name||'',company:row.company||'',email:row.email||'',phone:row.phone||'',assistant:row.assistant||'',birthday:row.birthday||'',airline:row.airline||'',hotel:row.hotel||'',seat:row.seat||'',frequentFlyer:row.frequent_flyer||'',emergency:row.emergency||'',notes:row.notes||''};}
 function clientToDb(c){return {id:c.id,name:c.name,company:c.company||null,email:c.email||null,phone:c.phone||null,assistant:c.assistant||null,birthday:c.birthday||null,airline:c.airline||null,hotel:c.hotel||null,seat:c.seat||null,frequent_flyer:c.frequentFlyer||null,emergency:c.emergency||null,notes:c.notes||'',updated_at:new Date().toISOString()};}
 function eventFromDb(row){return {id:row.id,type:row.type,title:row.title,clientId:row.client_id||null,startDate:row.start_date,endDate:row.end_date,startTime:(row.start_time||'').slice(0,5),endTime:(row.end_time||'').slice(0,5),location:row.location||'',status:row.status||'Planned',summary:row.summary||'',critical:row.critical||'',flights:row.flights||'',hotel:row.hotel||'',transport:row.transport||'',meetings:row.meetings||'',attachments:Array.isArray(row.attachments)?row.attachments:[],repeat:row.repeat_rule||'none',repeatCount:row.repeat_count||3};}
 function eventToDb(e){return {id:e.id,type:e.type,title:e.title,client_id:e.clientId||null,start_date:e.startDate,end_date:e.endDate||e.startDate,start_time:e.startTime||null,end_time:e.endTime||null,location:e.location||null,status:e.status||'Planned',summary:e.summary||null,critical:e.critical||null,flights:e.flights||null,hotel:e.hotel||null,transport:e.transport||null,meetings:e.meetings||null,attachments:Array.isArray(e.attachments)?e.attachments:[],repeat_rule:e.repeat||'none',repeat_count:Number(e.repeatCount||3),updated_at:new Date().toISOString()};}
 async function loadSharedData(shouldRender=true){
-  if(!supabaseClient||!currentSession)return;
+  if(!supabaseClient)return;
   const [clientsResult,eventsResult]=await Promise.all([
     supabaseClient.from('clients').select('*').order('name'),
     supabaseClient.from('events').select('*').order('start_date')
@@ -309,38 +288,32 @@ async function loadSharedData(shouldRender=true){
   if(selectedClientId&&!state.clients.some(c=>c.id===selectedClientId))selectedClientId=null;
   if(shouldRender)render();
 }
-async function verifyMemberAndStart(session){
-  currentSession=session;
-  if(!session){memberRole=null;state.clients=[];state.events=[];stopRealtime();showAuthGate('Please sign in with an authorized team account.');return;}
-  setAuthStatus('Checking your calendar access...');
-  const {data:member,error}=await supabaseClient.from('calendar_members').select('role,active').eq('user_id',session.user.id).maybeSingle();
-  if(error){showAuthGate('Could not verify calendar access: '+error.message,true);return;}
-  if(!member||!member.active){memberRole=null;showAuthGate('Your account is signed in but is not an approved calendar member. Ask the project administrator to add your user ID to calendar_members.',true);return;}
-  memberRole=member.role;document.getElementById('configNotice').style.display='none';
-  try{await loadSharedData(false);showApp();render();subscribeRealtime();setAuthStatus('');}
-  catch(err){showAuthGate('Signed in, but the database could not be loaded: '+err.message,true);}
-}
 function stopRealtime(){if(supabaseClient&&realtimeChannel){supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null;}}
 function subscribeRealtime(){
-  stopRealtime();if(!supabaseClient||!currentSession)return;
-  realtimeChannel=supabaseClient.channel('calendar-shared-changes')
+  stopRealtime();if(!supabaseClient)return;
+  realtimeChannel=supabaseClient.channel('calendar-link-only-changes')
     .on('postgres_changes',{event:'*',schema:'public',table:'events'},()=>scheduleSharedRefresh())
     .on('postgres_changes',{event:'*',schema:'public',table:'clients'},()=>scheduleSharedRefresh())
     .subscribe(status=>{if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){document.getElementById('storageStatus').textContent='Database connected; live updates need Realtime enabled. Refresh to load changes.';}});
 }
-function scheduleSharedRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>loadSharedData(true).catch(err=>setAuthStatus('Could not refresh shared data: '+err.message,true)),250);}
+function scheduleSharedRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>loadSharedData(true).catch(err=>{document.getElementById('storageStatus').textContent='Could not refresh shared data: '+err.message;}),250);}
 async function initializeCloudApp(){
-  document.getElementById('appSignOutBtn').addEventListener('click',signOutUser);
-  document.getElementById('signOutBtn').addEventListener('click',signOutUser);
-  document.getElementById('authForm').addEventListener('submit',async ev=>{ev.preventDefault();if(!supabaseClient)return;const email=document.getElementById('authEmail').value.trim();const password=document.getElementById('authPassword').value;setAuthStatus('Signing in...');const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});if(error){setAuthStatus(error.message,true);return;}await verifyMemberAndStart(data.session);});
-  document.getElementById('magicLinkBtn').addEventListener('click',async()=>{if(!supabaseClient)return;const email=document.getElementById('authEmail').value.trim();if(!email){setAuthStatus('Enter your email address first.',true);return;}setAuthStatus('Sending a sign-in link...');const {error}=await supabaseClient.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin+window.location.pathname}});setAuthStatus(error?error.message:'If this email is authorized, a sign-in link has been sent. Check your inbox.',!!error);});
-  if(!isSupabaseConfigured()||!window.supabase?.createClient){document.getElementById('configNotice').textContent="Setup required: in index.html, replace SUPABASE_URL and SUPABASE_ANON_KEY with the Supabase project URL and public publishable/anon key. Do not use a service-role or secret key.";showAuthGate('The website is deployed, but Supabase connection settings have not been added yet.');return;}
-  supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-  document.getElementById('configNotice').style.display='none';
-  supabaseClient.auth.onAuthStateChange((event,session)=>{setTimeout(()=>{if(event==='SIGNED_OUT'||!session){verifyMemberAndStart(null);}else if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED'||event==='INITIAL_SESSION'){verifyMemberAndStart(session).catch(err=>showAuthGate(err.message,true));}},0);});
-  const {data,error}=await supabaseClient.auth.getSession();if(error){showAuthGate(error.message,true);return;}if(data.session)await verifyMemberAndStart(data.session);else showAuthGate('Sign in with your approved team account.');
+  if(!isSupabaseConfigured()||!window.supabase?.createClient){
+    document.getElementById('storageStatus').textContent='Setup required: configure SUPABASE_URL and SUPABASE_ANON_KEY in index.html.';
+    return;
+  }
+  // Deliberately do not restore or persist a user session: requests use the public anon role.
+  supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+  try{
+    await loadSharedData(false);
+    document.getElementById('storageStatus').textContent='Connected — link-only access; anyone with the link can view and change shared data.';
+    render();
+    subscribeRealtime();
+  }catch(err){
+    document.getElementById('storageStatus').textContent='Database connection failed: '+err.message;
+    console.error('Link-only calendar startup failed:',err);
+  }
 }
-async function signOutUser(){if(supabaseClient)await supabaseClient.auth.signOut();currentSession=null;memberRole=null;state.clients=[];state.events=[];stopRealtime();showAuthGate('You have signed out.');}
 async function dbUpsertClients(clients){if(!clients.length)return;const {error}=await supabaseClient.from('clients').upsert(clients.map(clientToDb));if(error)throw error;}
 async function dbUpsertEvents(events){if(!events.length)return;const {error}=await supabaseClient.from('events').upsert(events.map(eventToDb));if(error)throw error;}
 
@@ -380,7 +353,6 @@ function renderSelectedEvent(){const ev=getEventById(state.selectedEventId);if(!
 function loadClient(id){const c=getClientById(id);if(!c)return;selectedClientId=id;document.getElementById('clientStatus').textContent=`Editing ${c.name}`;['clientName','clientCompany','clientEmail','clientPhone','clientAssistant','clientBirthday','clientAirline','clientHotel','clientSeat','clientFrequentFlyer','clientEmergency','clientNotes'].forEach(k=>document.getElementById(k).value=c[{clientName:'name',clientCompany:'company',clientEmail:'email',clientPhone:'phone',clientAssistant:'assistant',clientBirthday:'birthday',clientAirline:'airline',clientHotel:'hotel',clientSeat:'seat',clientFrequentFlyer:'frequentFlyer',clientEmergency:'emergency',clientNotes:'notes'}[k]]||'');renderClients()}
 function clearClientForm(){selectedClientId=null;document.getElementById('clientStatus').textContent='New client';['clientName','clientCompany','clientEmail','clientPhone','clientAssistant','clientBirthday','clientAirline','clientHotel','clientSeat','clientFrequentFlyer','clientEmergency','clientNotes'].forEach(id=>document.getElementById(id).value='');renderClients()}
 async function saveClient(){
-  if(!currentSession)return alert('Please sign in first.');
   const client={id:selectedClientId||crypto.randomUUID(),name:document.getElementById('clientName').value.trim(),company:document.getElementById('clientCompany').value.trim(),email:document.getElementById('clientEmail').value.trim(),phone:document.getElementById('clientPhone').value.trim(),assistant:document.getElementById('clientAssistant').value.trim(),birthday:document.getElementById('clientBirthday').value,airline:document.getElementById('clientAirline').value.trim(),hotel:document.getElementById('clientHotel').value.trim(),seat:document.getElementById('clientSeat').value.trim(),frequentFlyer:document.getElementById('clientFrequentFlyer').value.trim(),emergency:document.getElementById('clientEmergency').value.trim(),notes:document.getElementById('clientNotes').value.trim()};
   if(!client.name)return alert('Please enter a client name.');
   try{const {error}=await supabaseClient.from('clients').upsert(clientToDb(client));if(error)throw error;selectedClientId=client.id;await loadSharedData(false);document.getElementById('clientStatus').textContent=`Saved ${client.name}`;render();}catch(err){alert('Could not save client: '+err.message);}
@@ -394,7 +366,6 @@ function fillClientOptions(selected=''){document.getElementById('eventClient').i
 function openEventModal(ev=null,date=null){document.getElementById('eventModalBackdrop').classList.add('open');document.getElementById('eventModalBackdrop').setAttribute('aria-hidden','false');const d=date||ev?.startDate||state.selectedDate||todayStr();document.getElementById('modalTitle').textContent=ev?'Edit Event':'New Event';document.getElementById('eventType').value=ev?.type||'travel';fillClientOptions(ev?.clientId||'');document.getElementById('eventTitle').value=ev?.title||'';document.getElementById('eventStart').value=ev?.startDate||d;document.getElementById('eventEnd').value=ev?.endDate||d;document.getElementById('eventStartTime').value=ev?.startTime||'09:00';document.getElementById('eventEndTime').value=ev?.endTime||'17:00';document.getElementById('eventLocation').value=ev?.location||'';document.getElementById('eventStatus').value=ev?.status||'Planned';document.getElementById('eventSummary').value=ev?.summary||'';document.getElementById('eventCritical').value=ev?.critical||'';document.getElementById('eventFlights').value=ev?.flights||'';document.getElementById('eventHotel').value=ev?.hotel||'';document.getElementById('eventTransport').value=ev?.transport||'';document.getElementById('eventMeetings').value=ev?.meetings||'';document.getElementById('eventAttachments').value=(ev?.attachments||[]).join(', ');document.getElementById('eventRepeat').value=ev?.repeat||'none';document.getElementById('eventRepeatCount').value=ev?.repeatCount||3;state.selectedEventId=ev?.id||null}
 function closeModal(){document.getElementById('eventModalBackdrop').classList.remove('open');document.getElementById('eventModalBackdrop').setAttribute('aria-hidden','true')}
 async function saveEvent(){
-  if(!currentSession)return alert('Please sign in first.');
   const wasEditing=Boolean(state.selectedEventId);const repeat=document.getElementById('eventRepeat').value;const count=Math.max(1,Math.min(24,Number(document.getElementById('eventRepeatCount').value||1)));
   const ev={id:state.selectedEventId||crypto.randomUUID(),type:document.getElementById('eventType').value,clientId:document.getElementById('eventClient').value||null,title:document.getElementById('eventTitle').value.trim(),startDate:document.getElementById('eventStart').value,endDate:document.getElementById('eventEnd').value||document.getElementById('eventStart').value,startTime:document.getElementById('eventStartTime').value,endTime:document.getElementById('eventEndTime').value,location:document.getElementById('eventLocation').value.trim(),status:document.getElementById('eventStatus').value,summary:document.getElementById('eventSummary').value.trim(),critical:document.getElementById('eventCritical').value.trim(),flights:document.getElementById('eventFlights').value.trim(),hotel:document.getElementById('eventHotel').value.trim(),transport:document.getElementById('eventTransport').value.trim(),meetings:document.getElementById('eventMeetings').value.trim(),attachments:document.getElementById('eventAttachments').value.split(',').map(x=>x.trim()).filter(Boolean),repeat,repeatCount:count};
   if(!ev.title)return alert('Please enter a title.');if(!ev.startDate)return alert('Please choose a start date.');if(ev.endDate<ev.startDate)return alert('End date cannot be before start date.');
@@ -415,11 +386,10 @@ function copyEmail(){const text=generateEmail(true);if(!text)return;navigator.cl
 function downloadTxt(){const text=generateEmail(true);if(!text)return;const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='trip-summary.txt';a.click();URL.revokeObjectURL(url)}
 function exportJSON(){const blob=new Blob([JSON.stringify({clients:state.clients,events:state.events},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='travel-dashboard-data.json';a.click();URL.revokeObjectURL(url)}
 function importJSON(){
-  if(!currentSession)return alert('Please sign in first.');
   const input=document.createElement('input');input.type='file';input.accept='application/json';input.onchange=async()=>{const file=input.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());const rawClients=Array.isArray(data.clients)?data.clients:[];const rawEvents=Array.isArray(data.events)?data.events:[];const validUuid=id=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id||''));const clientMap=new Map();const clients=rawClients.map(c=>{const id=validUuid(c.id)?c.id:crypto.randomUUID();clientMap.set(c.id,id);return {...c,id};});const events=rawEvents.map(e=>({...e,id:validUuid(e.id)?e.id:crypto.randomUUID(),clientId:clientMap.get(e.clientId)||null}));if(!confirm(`Import ${clients.length} clients and ${events.length} events into the shared calendar? Matching IDs will update existing records.`))return;await dbUpsertClients(clients);await dbUpsertEvents(events);await loadSharedData(false);render();alert('Import completed successfully.');}catch(err){alert('Import failed. Check the JSON format and database permissions. '+err.message);}};input.click();
 }
 async function loadSampleData(){
-  if(!currentSession)return alert('Please sign in first.');if(!confirm('Add demonstration clients and events to the SHARED calendar? This will be visible to all authorized members.'))return;
+if(!confirm('Add demonstration clients and events to the SHARED calendar? This will be visible to all authorized members.'))return;
   const sampleClients=[{id:crypto.randomUUID(),name:'John Carter',company:'Example Media',email:'john@example.com',phone:'',assistant:'Mia Lane',birthday:'1988-08-19',airline:'Delta',hotel:'The Peninsula',seat:'Aisle',frequentFlyer:'',emergency:'',notes:'Demonstration record only. Remove after testing.'},{id:crypto.randomUUID(),name:'Ava Brooks',company:'Example Events',email:'ava@example.com',phone:'',assistant:'Nina Park',birthday:'1991-02-02',airline:'United',hotel:'Four Seasons',seat:'Window',frequentFlyer:'',emergency:'',notes:'Demonstration record only. Remove after testing.'}];
   const sampleEvents=[{id:crypto.randomUUID(),type:'travel',title:'Demo: Los Angeles Trip',clientId:sampleClients[0].id,startDate:shiftDate(0),endDate:shiftDate(2),startTime:'08:30',endTime:'20:00',location:'Los Angeles, CA',status:'Confirmed',summary:'Demonstration event; replace or delete after testing.',critical:'Demo only; do not add sensitive details.',flights:'Sample flight details',hotel:'Sample hotel details',transport:'Sample transportation',meetings:'Sample meeting details',attachments:['sample-itinerary.pdf'],repeat:'none',repeatCount:1},{id:crypto.randomUUID(),type:'meeting',title:'Demo: Strategy Meeting',clientId:sampleClients[1].id,startDate:shiftDate(1),endDate:shiftDate(1),startTime:'10:00',endTime:'11:00',location:'Example Office',status:'Planned',summary:'Demonstration event; replace or delete after testing.',critical:'Demo only.',flights:'',hotel:'',transport:'',meetings:'Sample agenda',attachments:[],repeat:'none',repeatCount:1}];
   try{await dbUpsertClients(sampleClients);await dbUpsertEvents(sampleEvents);await loadSharedData(false);state.selectedEventId=sampleEvents[0].id;state.selectedDate=sampleEvents[0].startDate;state.currentMonth=state.selectedDate.slice(0,7)+'-01';render();}catch(err){alert('Could not add sample data: '+err.message);}
@@ -436,11 +406,11 @@ document.getElementById('addClientBtn').addEventListener('click',clearClientForm
 document.getElementById('closeModalBtn').addEventListener('click',closeModal);document.getElementById('eventModalBackdrop').addEventListener('click',e=>{if(e.target.id==='eventModalBackdrop')closeModal()});
 document.getElementById('saveEventBtn').addEventListener('click',saveEvent);document.getElementById('deleteEventBtn').addEventListener('click',deleteEvent);document.getElementById('duplicateEventBtn').addEventListener('click',duplicateEvent);document.getElementById('focusSelectedBtn').addEventListener('click',()=>state.selectedEventId?openEventById(state.selectedEventId):alert('Select an event first.'));
 document.getElementById('emailEventSelect').addEventListener('change',()=>generateEmail(true));document.getElementById('generateEmailBtn').addEventListener('click',()=>generateEmail(true));document.getElementById('copyEmailBtn').addEventListener('click',copyEmail);document.getElementById('downloadTxtBtn').addEventListener('click',downloadTxt);
-document.getElementById('exportBtn').addEventListener('click',exportJSON);document.getElementById('importBtn').addEventListener('click',importJSON);document.getElementById('seedBtn').addEventListener('click',loadSampleData);document.getElementById('emailSubject').addEventListener('input',()=>generateEmail(true));document.getElementById('emailGreeting').addEventListener('input',()=>generateEmail(true));document.getElementById('emailNotes').addEventListener('input',()=>generateEmail(true));
+document.getElementById('exportBtn').addEventListener('click',exportJSON);document.getElementById('importBtn').addEventListener('click',importJSON);document.getElementById('emailSubject').addEventListener('input',()=>generateEmail(true));document.getElementById('emailGreeting').addEventListener('input',()=>generateEmail(true));document.getElementById('emailNotes').addEventListener('input',()=>generateEmail(true));
 document.getElementById('todayLabel').textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 if(!state.clients.length&&!state.events.length){state.currentMonth=todayStr().slice(0,7)+'-01';state.selectedDate=todayStr()}
 attachClickHandlers();
-initializeCloudApp().catch(err=>showAuthGate('App initialization failed: '+err.message,true));
+initializeCloudApp().catch(err=>{document.getElementById('storageStatus').textContent='App initialization failed: '+err.message;console.error(err);});
 </script>
 </body>
 </html>
